@@ -20,6 +20,7 @@ import multiprocessing as mp
 class Scrapy:
     t0 = time.time()
     count = 0
+    connect_count = 0
     login_url = "https://weibo.com"
     def __init__(self,time = 10):
         self.time = time
@@ -38,7 +39,7 @@ class Scrapy:
     def init_cookies(self):
         cookies_pool = []
         i = 0
-        for _ in range(10):
+        for _ in range(5):
             for user in self.user_pool:
                 cookies = self.login(user)
                 print('Get cookies No.',i+1,"with user:",user[0])
@@ -150,10 +151,11 @@ class Scrapy:
             return None
         self.count += 1
         print("\n",self.count,".\tConnect url :",url,"\tuse time:",time.time()-self.t0)
-        i = 5
-        for _ in range(6):
+        i = 2
+        for _ in range(3):
             headers = random.sample(self.headers_pool,1)[0]
             cookies = random.sample(self.cookies_pool,1)[0]
+            self.connect_count += 1
             try:
                 async with aiohttp.ClientSession(cookies = cookies) as session:
                     async with session.get(url,headers = headers) as r:
@@ -161,12 +163,12 @@ class Scrapy:
                         await asyncio.sleep(self.time)
                         return html
             except:
-                print("\nConnect url:",url,"sleep 5s then retry 剩余次数：",i)
+                print("\nConnect url:",url,"error..... sleep 5s then retry 剩余次数：",i,"总连接次数：",self.connect_count)
                 i -= 1
                 await asyncio.sleep(10)
-        print("Wait for 30s then get cookies")
+        print("\nWait for 30s then get cookies")
         await asyncio.sleep(30)
-        t1 = time.time() - t0
+        t1 = time.time() - self.t0
         self.cookies_pool = []
         self.cookies_pool = self.init_cookies()
         self.t0 = t1
@@ -182,7 +184,7 @@ def analyse_att_url(html):
     html4 = re.sub(re.compile(r'\\n'),"\n",html3)
     html5 = re.sub(re.compile(r'\\r'),"\r",html4)
     p = re.compile('href="(/\d+/follow\?rightmod=\d&wvr=\d)"')
-    p1 = re.compile(r'<span\s+class="item_text\s+W_fl">\s*([^<>\s]+)\s*[^<>\s]*</span>') 
+    p1 = re.compile(r'<span\s+class="item_text\s+W_fl">\s*([^<>\s]+?)\s*[^<>\s]*</span>') 
     p2 = re.compile(r'<title>([^<>]+)</title>')
     p3 = re.compile(r'href="//weibo.com(/p/\d+/follow\?from=page_\d+&wvr=6&mod=headfollow#place)"')
     try:
