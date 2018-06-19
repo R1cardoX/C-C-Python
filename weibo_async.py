@@ -29,17 +29,17 @@ class Scrapy:
         self.cookies_pool = self.init_cookies()
 
     def init_headers(self):
-        file = open('headers','r')
+        file = open('./res/headers','r')
         headers_group = []
         for headers in file.readlines():
             headers = {"User-Agent":headers.strip('\n')}
             headers_group.append(headers)
         return headers_group
 
-    def init_cookies(self):
+    def init_cookies(self,times = 3):
         cookies_pool = []
         i = 0
-        for _ in range(5):
+        for _ in range(times):
             for user in self.user_pool:
                 cookies = self.login(user)
                 print('Get cookies No.',i+1,"with user:",user[0])
@@ -51,7 +51,7 @@ class Scrapy:
         return cookies_pool
     
     def init_users(self):
-        file = open('userform','r')#格式 用户名:密码
+        file = open('./res/userform','r')#格式 用户名:密码
         users_group = []
         for users in file.readlines():
             users = (users.strip('\n').split(':')[0],users.strip('\n').split(':')[1])
@@ -150,7 +150,7 @@ class Scrapy:
         if url is None:
             return None
         self.count += 1
-        print("\n",self.count,".\tConnect url :",url,"\tuse time:",time.time()-self.t0)
+        print(self.count,".\tConnect url :",url,"\tuse time:",time.time()-self.t0)
         i = 2
         for _ in range(3):
             headers = random.sample(self.headers_pool,1)[0]
@@ -163,14 +163,13 @@ class Scrapy:
                         await asyncio.sleep(self.time)
                         return html
             except:
-                print("\nConnect url:",url,"error..... sleep 5s then retry 剩余次数：",i,"总连接次数：",self.connect_count)
+                print("Connect url:",url,"\terror\tsleep 5s then retry in:",i,"\tall connect:",self.connect_count)
                 i -= 1
                 await asyncio.sleep(10)
-        print("\nWait for 30s then get cookies")
-        await asyncio.sleep(30)
+        print("Wait for 60s then get cookies,url:",url)
+        await asyncio.sleep(60)
         t1 = time.time() - self.t0
-        self.cookies_pool = []
-        self.cookies_pool = self.init_cookies()
+        cookies = self.init_cookies(1)
         self.t0 = t1
         self.connect_url(url)
 
@@ -184,13 +183,13 @@ def analyse_att_url(html):
     html4 = re.sub(re.compile(r'\\n'),"\n",html3)
     html5 = re.sub(re.compile(r'\\r'),"\r",html4)
     p = re.compile('href="(/\d+/follow\?rightmod=\d&wvr=\d)"')
-    p1 = re.compile(r'<span\s+class="item_text\s+W_fl">\s*([^<>\s]+?)\s*[^<>\s]*</span>') 
+    p1 = re.compile(r'<span\s*class="item_ico\s*W_fl">\s*<em\s*class="W_ficon\s*ficon_cd_place\s*S_ficon">[^<>]*</em>[^<>]*</span>[^<>]*<span\s*class="item_text\s+W_fl">\s*([^<>\s]+)\s*[^<>\s]*\s*</span>') 
     p2 = re.compile(r'<title>([^<>]+)</title>')
     p3 = re.compile(r'href="//weibo.com(/p/\d+/follow\?from=page_\d+&wvr=6&mod=headfollow#place)"')
     try:
         title = p2.search(html5).group(1).split("的微博")[0]
     except:
-        print("\nSearch title error ...")
+        print("Search title error ...")
         return None,None
     try:
         match = p3.search(html5)
@@ -198,16 +197,14 @@ def analyse_att_url(html):
             match = p.search(html5)
         url = "https://weibo.com" + match.group(1)
     except:
-        print("\nSearch url error ...")
-        print("\n...................Error Title:",title)
+        print("Search url error\t\t\t\t\t\tError Title:",title)
         return None,None
     try:
         location = p1.search(html5).group(1)
     except:
-        print("\nSearch location error ...")
-        print("\n...................Error Title:",title)
+        print("Search location error ...but get the url:",url,"\tError Title:",title)
         return url,None
-    print("\nGet the url:",url,"from ",title,"\t位置：",location)
+    print("Get the url:",url,"\tfrom:",title,"\t\t\t\tLocation:",location)
     return url,location
 
 def analyse_some_att(html):
@@ -227,7 +224,7 @@ def analyse_some_att(html):
         for _id in att:
             url = 'https://weibo.com/u/' + _id[0]# + '?from=myfollow_all'
             url_list.append(url)
-            print("\nGet the user url:",url,"from ",title)
+            print("Get the user url:",url,"\t\tfrom ",title)
     except:
         return None
     return set(url_list)
@@ -239,8 +236,9 @@ async def main(loop):
     base_url = 'https://weibo.com/'
     seen = set()
     unseen = set([base_url])
+    att_urls = set()
     user = Scrapy()
-    while len(unseen) != 0:
+    while len(unseen) != 0 or len(att_urls) <= 10000:
         print('\nGet  attation url ing ...')
         tasks = [loop.create_task(user.connect_url(url)) for url in unseen]
         finished,unfinished = await asyncio.wait(tasks)
@@ -249,20 +247,20 @@ async def main(loop):
         print('\nAnalyse attation html ing ...')
         parse_jobs = [pool.apply_async(analyse_att_url,args=(html,)) for html in htmls]
         user_datas = [j.get() for j in parse_jobs]
-        att_urls = []
-        location_list = set()
+        locations = pd.Series([0],index = ['北京'])
         for url,location in user_datas:
             if url is None:
                 continue
-            att_urls.append(url)
-            if location is None:
+            elif url in att_urls:
                 continue
-            if location in location_list:
-                locations[location] += 1
-            else:
-                locations = pd.Series([1],index = [location])
-        if len(location_list) > 0:    
-            print("\nLocations:\n",locations)
+            if location is not None:
+                if location in locations:
+                    locations[location] += 1
+                else:
+                    locations[location] = 1
+            att_urls.add(url)
+        print("\nLocations:\n",locations)
+        locations.to_csv('./res/location.csv')
 
         print('\nGet some attation ing ...')
         tasks = [loop.create_task(user.connect_url(url)) for url in att_urls]
@@ -281,6 +279,8 @@ async def main(loop):
             unseen.update(url_list - seen)
 
         print('Use time:',time.time()-user.t0,'get user number:',len(seen)+len(unseen))
+        user.cookies_pool = []
+        user.cookies_pool = user.init_cookies()
 
 
 if __name__ == "__main__":
