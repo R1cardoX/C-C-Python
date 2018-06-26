@@ -1,3 +1,4 @@
+import signal
 import requests
 import random
 import time
@@ -17,7 +18,9 @@ import binascii
 import aiohttp
 import asyncio
 import multiprocessing as mp
-
+import threading
+import sys
+import os
 class Scrapy:
     t0 = time.time()
     count = 0
@@ -133,7 +136,7 @@ class Scrapy:
         return request.cookies
 
     async def connect_url(self,url):
-        if url is None:
+        if url is "":
             return None
         if self.count % 100 is 0 and self.count is not 0:
             print(self.count,".\tConnect url :",url,"\tuse time:",time.time()-self.t0)
@@ -156,7 +159,7 @@ class Scrapy:
 
 def analyse_user_data(html):
     if html is None:
-        return None
+        return ""
     html1 = re.sub(re.compile(r'\\/'),"/",html)
     html2 = re.sub(re.compile(r'\\"'),"\"",html1)
     html3 = re.sub(re.compile(r'\\t'),"\t",html2)
@@ -166,30 +169,48 @@ def analyse_user_data(html):
     p1 = re.compile(r'<span\s*class="item_ico\s*W_fl">\s*<em\s*class="W_ficon\s*ficon_cd_place\s*S_ficon">[^<>]*</em>[^<>]*</span>[^<>]*<span\s*class="item_text\s+W_fl">\s*([^<>\s]+)\s*[^<>\s]*\s*</span>') 
     p2 = re.compile(r'<title>([^<>]+)</title>')
     p3 = re.compile(r'href="//weibo.com(/p/\d+/follow\?from=page_\d+&wvr=6&mod=headfollow#place)"')
+    p4 = re.compile(r'href="(/\d+/fans\?\w+=\d+&\w+=\d+)"')
+    p5 = re.compile(r'href="//weibo.com(/p/\d+/follow\?relate=fans&from=\d+&wvr=\d+&mod=headfans&current=fans#place)"')
+    p6 = re.compile(r'简介：([^<>]+)')
+    p7 = re.compile(r'href="(/\d+/profile\?rightmod=\d+&wvr=\d+&mod=personinfo)"')
     try:
         title = p2.search(html5).group(1).split("的微博")[0]
     except:
         #print("Search title error ...")
-        return None,None
+        title = ""
     try:
         match = p3.search(html5)
         if match is None:
             match = p.search(html5)
-        url = "https://weibo.com" + match.group(1)
+        att_url = "https://weibo.com" + match.group(1)
     except:
-        #print("Search url error\t\t\t\t\t\tError Title:",title)
-        return None,None
+        #print("Search att url error\t\t\t\t\t\tError Title:",title)
+        att_url = ""
+    try:
+        match = p5.search(html5)
+        if match is None:
+            match = p4.search(html5)
+        fans_url = "https://weibo.com" + match.group(1)
+    except:
+        #print("Search fans url error\t\t\t\t\t\tError Title:",title)
+        fans_url = ""
     try:
         location = p1.search(html5).group(1)
     except:
         #print("Search location error ...but get the url:",url,"\tError Title:",title)
-        return url,None
-    print("Get the url:",url,"\tfrom:",title,"\t\t\t\tLocation:",location)
-    return url,location
+        location = ""
+    try:
+        r_autograph = p6.search(html5).group(1)
+        autograph = re.sub(re.compile(r'\s+')," ",r_autograph)
+    except:
+        #print("Search autograph error ...but get the url:",url,"\tError Title:",title)
+        autograph = ""
+    print("\nFrom title:",title,"\n\tGet att url:",att_url,"\n\tGet fans url:",fans_url,"\n\tLocation:",location,"\tAutograph:",autograph)
+    return title,att_url,fans_url,location,autograph
 
 def analyse_some_att(html):
     if html is None:
-        return None
+        return ""
     html1 = re.sub(re.compile(r'\\/'),"/",html)
     html2 = re.sub(re.compile(r'\\"'),"\"",html1)
     html3 = re.sub(re.compile(r'\\t'),"\t",html2)
@@ -197,16 +218,19 @@ def analyse_some_att(html):
     html5 = re.sub(re.compile(r'\\r'),"\r",html4)
     p = re.compile(r'action-data=\\"uid=(\d{1,15})&nick=(.+?)\\">')
     p2 = re.compile(r'<title>([^<>]+)</title>')
-    title = p2.search(html5).group(1).split("的微博")[0]
+    try:
+        title = p2.search(html5).group(1).split("的微博")[0]
+    except:
+        title = ""
     try:
         att = p.findall(html)
         url_list = []
         for _id in att:
             url = 'https://weibo.com/u/' + _id[0]# + '?from=myfollow_all'
             url_list.append(url)
-            #print("Get the user url:",url,"\t\tfrom ",title)
+            print("Get the user url:",url,"\t\tfrom ",title)
     except:
-        return None
+        return ""
     return set(url_list)
 
 
@@ -220,6 +244,8 @@ async def main(loop):
     lost_url = set()
     user = Scrapy()
     locations = pd.Series([0],index = ['北京'])
+    file_userdata = open('./res/userdata','w')
+    file_userdata.write("")
     while len(unseen) != 0 or len(att_urls) <= 10000 or user.count <= 10000:
         print('\nGet  attation url ing ...')
         tasks = [loop.create_task(user.connect_url(url)) for url in unseen]
@@ -233,20 +259,28 @@ async def main(loop):
             else:
                 lost_url.add(data)
         att_urls.update(lost_url)
+        print("\nSuccess get url:",len(htmls),"\tGet url error:",len(lost_url))
+
+
         print('\nAnalyse attation html ing ...')
         parse_jobs = [pool.apply_async(analyse_user_data,args=(html,)) for html in htmls]
         user_datas = [j.get() for j in parse_jobs]
-        for url,location in user_datas:
-            if url is None:
+        file_userdata = open('./res/userdata','a')
+        for title,att_url,fans_url,location,autograph in user_datas:
+            if att_url is "":
                 continue
-            elif url in att_urls:
+            elif att_url in att_urls:
                 continue
-            if location is not None:
+            user_data = "title:" + title + "att_url:" + att_url + "fans_url:" + fans_url + "location:" + location + "autograph:" + autograph + "\n"
+            file_userdata.writelines(user_data)
+            if location is not "":
                 if location in locations:
                     locations[location] += 1
                 else:
                     locations[location] = 1
-            att_urls.add(url)
+            att_urls.add(att_url)
+            if fans_url is not "":
+                att_urls.add(fans_url)
         print("\nLocations:\n",locations)
         locations.to_csv('./res/location.csv')
 
@@ -275,9 +309,23 @@ async def main(loop):
 
         print('Use time:',time.time()-user.t0,'get user number:',len(seen)+len(unseen),'\n\t\t\tWait for connect user\'s url num:',len(unseen),'already connect user\'s url num:',len(seen))
 
+
+def user_exit():
+    while True:
+        read = str(sys.stdin.readline())
+        if 'exit' in read or 'quit' in read:
+            print("将要退出程序",os.getpid())
+            break
+        read = ""
+    os.kill(os.getpid(),signal.SIGINT)
+
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main(loop))
-    loop.close()
+    print("即将开始程序，这个操作会清空location.csv与userdata,如意需要请及时备份,输入任意键开始")
+    if sys.stdin.readline() is not None:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main(loop))
+        loop.close()
+    else:
+        print("已经退出")
     
     
