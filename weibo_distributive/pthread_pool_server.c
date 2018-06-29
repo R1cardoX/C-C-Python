@@ -1,8 +1,106 @@
-#include "../include/thread_pool.h"
+#include "thread_pool.h"
 
-int clientnum = 0;
-int client[3] = {0};
+Client* pHead = NULL;
+Client* pEnd = NULL;
+int client_num = 0;
 
+void client_delete(int clientfd)
+{
+    pthread_mutex_lock(&alock);
+    Client* pPre = pHead;
+    Client* pTemp = pHead->pNext;
+    if(pHead == NULL)
+    {
+        return;
+    }
+    if(pHead->clientfd == clientfd)
+    {
+        pHead = pHead->pNext;
+        free(pPre);
+    }
+    while(pTemp->pNext == NULL)
+    {
+        if(pTemp->clientfd == clientfd)
+        {
+            pPre->pNext = pTemp->pNext;
+            if(pTemp == pEnd)
+            {
+                pEnd = pPre;
+            }
+            free(pTemp);
+        }
+        pPre = pPre->pNext;
+        pTemp = pTemp->pNext;
+    }
+    client_num--;
+    pthread_mutex_unlock(&alock);
+}
+
+void client_append(Client* client)
+{
+    pthread_mutex_lock(&alock);
+    if(client == NULL)
+    {
+        return;
+    }
+    if(pHead == NULL)
+    {
+        pHead = client;
+        pEnd = client; 
+    }
+    else
+    {
+        pEnd->pNext = client;
+        client->pNext = NULL;
+    }
+    client_num++;
+    pthread_mutex_unlock(&alock);
+}
+
+
+Client* find_client(int type)
+{
+    Client* pTemp = pHead;
+    while(pTemp->pNext == NULL)
+    {
+        if(pTemp->type == type)
+        {
+            return pTemp;
+        }
+        pTemp = pTemp->pNext;
+    }
+    printf("Not find client ...\n");
+    return NULL;
+}
+
+Client* find_next_client(Client* client)
+{
+    switch(client->type)
+    {
+        case USER_URL:
+            {
+               return find_client(USER_HTML);
+            }
+           break; 
+        case PRE_URL:
+            {
+                return find_client(PRE_HTML);
+            }
+           break; 
+        case USER_HTML:
+            {
+                return find_client(PRE_URL);
+            }
+           break; 
+        case PRE_HTML:
+            {
+                return find_client(USER_URL);
+            }
+           break; 
+    }
+    printf("Find Client Error...\n");
+    return NULL;
+}
 
 pool_t * Pool_Create(int thread_min , int thread_max , int queue_max)
 {
@@ -175,60 +273,53 @@ int init_socket(void)
     listen(socketfd,_LISTEN);
     return socketfd;
 }
-int clientfd[4];
 
 void * server_work(void * arg)
 {
     int socketfd = (long int)arg;
-    int client,clientsize,len;
+    int clientfd,clientsize,len;
+    Client* client = (Client*)malloc(sizeof(client));
     struct sockaddr_in clientaddr;
     char buf[_BUF_SIZE];
     char ipstr[_IP_SIZE];
     clientsize = sizeof(clientaddr);
     pthread_mutex_lock(&alock);
     printf("tid:%x  Accepting....\n",(unsigned int)pthread_self());
-    client = accept(socketfd,(struct sockaddr *)&clientaddr,&clientsize);
+    clientfd = accept(socketfd,(struct sockaddr *)&clientaddr,&clientsize);
+    client->clientfd = clientfd;
+    strcpy(client->HOST,inet_ntop(AF_INET,&clientaddr.sin_addr.s_addr,ipstr,_IP_SIZE));
+    client->PORT = ntohs(clientaddr.sin_port);
+    client->pNext = NULL;
     pthread_mutex_unlock(&alock);
     printf("tid:%x  ip:%s  port:%d\n",(unsigned int)pthread_self(),inet_ntop(AF_INET,&clientaddr.sin_addr.s_addr,ipstr,_IP_SIZE),ntohs(clientaddr.sin_port));
     int flag = 0;
-    while((len = read(client,buf,sizeof(buf)))>0)
+    read(clientfd,buf,sizeof(buf));
+    pthread_mutex_lock(&alock);
+    client->type = atoi(buf);
+    client_append(client); 
+    pthread_mutex_unlock(&alock);
+    while(1)
     {
-        int j = 0;
-        if(flag == 0)
+        printf("Wait for client logging ...\n");
+        char wait[5] = "WAIT";
+        write(client->clientfd,wait,sizeof(wait));
+        if(client_num >= 4)
         {
-            //{'type':'url1/url2/html1/html2',......}
-            int i = 9;
-            char type[6];
-            while(buf[i] == '\'')
-            {
-               type[i-9] = buf[i];
-            }
-            if (strcmp(type,"url1") == 0)
-            {
-                clientfd[0] = client;  
-                j = 1;
-            }
-            else if(strcmp(type,"url2") == 0)
-            {
-                clientfd[1] = client;
-                j = 2;
-            }
-            else if(strcmp(type,"html1") == 0)
-            {
-                clientfd[2] = client;
-                j = 3;
-            }
-            else if(strcmp(type,"html2") == 0)
-            {
-                clientfd[3] = client;
-                j = 0;
-            }
-        } 
-        write(clientfd[j],buf,len);
+            char ok[3] = "OK";
+            write(client->clientfd,ok,sizeof(ok));
+            break;
+        }
+        sleep(2);
+    }
+    while((len = read(client->clientfd,buf,sizeof(buf)))>0)
+    {
+        Client* next_client = find_next_client(client);
+        write(next_client->clientfd,buf,len);
         bzero(buf,sizeof(buf));
     }
     if(len == 0){
-        close(client);
+        close(clientfd);
+        client_delete(clientfd);
     }
     return NULL;
 }

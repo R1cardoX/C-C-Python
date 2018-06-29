@@ -17,6 +17,10 @@ import asyncio
 from socket import *
 
 
+USER_URL  = 100
+PRE_URL = 101
+USER_HTML = 102
+PRE_HTML = 103
 HOST = '127.0.0.1'
 PORT = 8000
 BUFSIZE = 1024
@@ -163,9 +167,14 @@ async def main(loop):
     seen = set()
     unseen = set()
     lost_url = set()
+    user = Scrapy()
     tcpCliSock = socket(AF_INET,SOCK_STREAM)
     tcpCliSock.connect(ADDR)
-    user = Scrapy()
+    tcpCliSock.send(str(PRE_URL).encode())
+    while True:
+        buf = tcpCliSock.recv(100).decode()
+        if 'OK' in buf:
+            break
     while True:
         urls = get_data_from_server(tcpCliSock)
         unseen.update(urls)
@@ -192,16 +201,11 @@ def get_data_from_server(tcpCliSock):
         if not data:
             break
         json_dict = json_dict + datas
-    _dict = json.loads(json_dict)
-    datas = _dict[data]
+    datas = json.loads(json_dict)
     return datas
     
 def post_data_to_server(tcpCliSock,datas):
-    _dict = {
-        "type":'url1',
-        "data":datas
-    }
-    json_dict = json.dumps(_dict)
+    json_dict = json.dumps(datas)
     for i in range(0,len(json_dict),BUFSIZE):
         data = json_dict[i:BUFSIZE]
         tcpCliSock.send(data.encode())  
