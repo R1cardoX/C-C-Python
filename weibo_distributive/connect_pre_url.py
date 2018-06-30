@@ -1,4 +1,5 @@
 import requests
+from socket import *
 import random
 import time
 import urllib.error
@@ -14,7 +15,7 @@ import numpy as np
 import binascii
 import aiohttp
 import asyncio
-from socket import *
+import client
 
 
 USER_URL  = 100
@@ -173,12 +174,17 @@ async def main(loop):
     tcpCliSock.send(str(PRE_URL).encode())
     while True:
         buf = tcpCliSock.recv(100).decode()
-        if 'OK' in buf:
+        if 'WAIT' in buf:
             break
     while True:
-        urls = get_data_from_server(tcpCliSock)
-        unseen.update(urls)
-        while len(seen) <= 10000:
+        buf = tcpCliSock.recv(100).decode()
+        if 'OK' in buf:
+            break
+    print("Connect Already ....")
+    while True:
+        urls = client.get_data_from_server(tcpCliSock)
+        unseen.update(set(urls))
+        while True:
             tasks = [loop.create_task(user.connect_url(url)) for url in unseen]
             finished,unfinished = await asyncio.wait(tasks)
             datas = [f.result() for f in finished]
@@ -189,26 +195,10 @@ async def main(loop):
                     htmls.append(data)
                 else:
                     lost_url.add(data)
-        post_data_to_server(tcpCliSock,htmls)
+            client.post_data_to_server(tcpCliSock,htmls)
         seen.update(unseen)
         unseen = lost_url
     tcpCliSock.close()
-
-def get_data_from_server(tcpCliSock):
-    json_dict = ""
-    while True:
-        data = tcpCliSock.recv(BUFSIZE).decode()
-        if not data:
-            break
-        json_dict = json_dict + datas
-    datas = json.loads(json_dict)
-    return datas
-    
-def post_data_to_server(tcpCliSock,datas):
-    json_dict = json.dumps(datas)
-    for i in range(0,len(json_dict),BUFSIZE):
-        data = json_dict[i:BUFSIZE]
-        tcpCliSock.send(data.encode())  
 
 
 if __name__ == "__main__":

@@ -1,10 +1,12 @@
 import time
+from socket import *
 from bs4 import BeautifulSoup
 import re
 import json
 import pandas as pd
 import numpy as np
 import multiprocessing as mp
+import client
 
 USER_URL  = 100
 PRE_URL = 101
@@ -69,6 +71,7 @@ def analyse_user_data(html):
 def main():
     pool = mp.Pool(4)
     locations = pd.Series([0],index = ['北京'])
+    att_urls = set()
     file_userdata = open('./res/userdata','w')
     file_userdata.write("")
     tcpCliSock = socket(AF_INET,SOCK_STREAM)
@@ -76,50 +79,39 @@ def main():
     tcpCliSock.send(str(USER_HTML).encode())
     while True:
         buf = tcpCliSock.recv(100).decode()
+        print(buf)
+        if 'WAIT' in buf:
+            break
+    while True:
+        buf = tcpCliSock.recv(100).decode()
         if 'OK' in buf:
             break
+    print("Connect Already ...")
     while True:
-        htmls = get_data_from_server(tcpCliSock)
-        while len(unseen) != 0 or len(att_urls) <= 10000 or user.count <= 10000:
-            print('\nAnalyse attation html ing ...')
-            parse_jobs = [pool.apply_async(analyse_user_data,args=(html,)) for html in htmls]
-            user_datas = [j.get() for j in parse_jobs]
-            file_userdata = open('./res/userdata','a')
-            for title,att_url,fans_url,location,autograph in user_datas:
-                if att_url is "":
-                    continue
-                elif att_url in att_urls:
-                    continue
-                user_data = "title:" + title + "att_url:" + att_url + "fans_url:" + fans_url + "location:" + location + "autograph:" + autograph + "\n"
-                file_userdata.writelines(user_data)
-                if location is not "":
-                    if location in locations:
-                        locations[location] += 1
-                    else:
-                        locations[location] = 1
-                att_urls.add(att_url)
-                if fans_url is not "":
-                    att_urls.add(fans_url)
-            print("\nLocations:\n",locations)
-            locations.to_csv('./res/location.csv')
-        post_data_to_server(tcpCliSock,att_urls)
-        att_urls = ""
-
-def get_data_from_server(tcpCliSock):
-    json_dict = ""
-    while True:
-        data = tcpCliSock.recv(BUFSIZE).decode()
-        if not data:
-            break
-        json_dict = json_dict + datas
-    datas = json.loads(json_dict)
-    return datas
-    
-def post_data_to_server(tcpCliSock,datas):
-    json_dict = json.dumps(datas)
-    for i in range(0,len(json_dict),BUFSIZE):
-        data = json_dict[i:BUFSIZE]
-        tcpCliSock.send(data.encode())
+        htmls = client.get_data_from_server(tcpCliSock)
+        print('\nAnalyse attation html ing ...')
+        parse_jobs = [pool.apply_async(analyse_user_data,args=(html,)) for html in htmls]
+        user_datas = [j.get() for j in parse_jobs]
+        file_userdata = open('./res/userdata','a')
+        for title,att_url,fans_url,location,autograph in user_datas:
+            if att_url is "":
+                continue
+            elif att_url in att_urls:
+                continue
+            user_data = "title:" + title + "att_url:" + att_url + "fans_url:" + fans_url + "location:" + location + "autograph:" + autograph + "\n"
+            file_userdata.writelines(user_data)
+            if location is not "":
+                if location in locations:
+                    locations[location] += 1
+                else:
+                    locations[location] = 1
+            att_urls.add(att_url)
+            if fans_url is not "":
+                att_urls.add(fans_url)
+        print("\nLocations:\n",locations)
+        locations.to_csv('./res/location.csv')
+        client.post_data_to_server(tcpCliSock,list(att_urls))
+        att_urls = []
 
 if __name__ == "__main__":
    main() 

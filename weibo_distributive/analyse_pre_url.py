@@ -4,8 +4,9 @@ import re
 import json
 import pandas as pd
 import numpy as np
+import client
 import multiprocessing as mp
-
+from socket import *
 USER_URL  = 100
 PRE_URL = 101
 USER_HTML = 102
@@ -38,7 +39,7 @@ def analyse_some_att(html):
             print("Get the user url:",url,"\t\tfrom ",title)
     except:
         return ""
-    return set(url_list)
+    return url_list
 
 
 def main():
@@ -47,31 +48,25 @@ def main():
     tcpCliSock.connect(ADDR)
     tcpCliSock.send(str(PRE_HTML).encode())
     while True:
-        buf = tcpCliSock.recv(100)
+        buf = tcpCliSock.recv(100).decode()
+        if 'WAIT' in buf:
+            break
+    while True:
+        buf = tcpCliSock.recv(100).decode()
         if 'OK' in buf:
             break
+    print("Connect Already ...")
+    datas = []
     while True:
-        htmls = get_data_from_server(tcpCliSock)
-        while len(unseen) != 0 or len(att_urls) <= 10000 or user.count <= 10000:
-            parse_jobss = [pool.apply_async(analyse_some_att,args=(html,)) for html in htmls]
-            url_lists = [j.get() for j in parse_jobss]
-        post_data_to_server(tcpCliSock,url_lists)
+        htmls = client.get_data_from_server(tcpCliSock)
+        parse_jobss = [pool.apply_async(analyse_some_att,args=(html,)) for html in htmls]
+        url_lists = [j.get() for j in parse_jobss]
+        for url_list in url_lists:
+            for url in url_list:
+                datas.append(url)
+        client.post_data_to_server(tcpCliSock,datas)
+        datas = []
 
-def get_data_from_server(tcpCliSock):
-    json_dict = ""
-    while True:
-        data = tcpCliSock.recv(BUFSIZE).decode()
-        if not data:
-            break
-        json_dict = json_dict + datas
-    datas = json.loads(json_dict)
-    return datas
-    
-def post_data_to_server(tcpCliSock,datas):
-    json_dict = json.dumps(datas)
-    for i in range(0,len(json_dict),BUFSIZE):
-        data = json_dict[i:BUFSIZE]
-        tcpCliSock.send(data.encode())
 
 if __name__ == "__main__":
    main() 

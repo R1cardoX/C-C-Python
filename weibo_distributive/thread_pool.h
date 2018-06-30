@@ -44,8 +44,8 @@ typedef struct _client
 }Client;
 
 void client_delete(int );
-void client_append(Client* );
-
+void client_append(Client** );
+void client_show();
 typedef struct
 {
 	pthread_mutex_t pool_lock;

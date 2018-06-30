@@ -18,7 +18,7 @@ void client_delete(int clientfd)
         pHead = pHead->pNext;
         free(pPre);
     }
-    while(pTemp->pNext == NULL)
+    while(pTemp)
     {
         if(pTemp->clientfd == clientfd)
         {
@@ -36,8 +36,9 @@ void client_delete(int clientfd)
     pthread_mutex_unlock(&alock);
 }
 
-void client_append(Client* client)
+void client_append(Client** client)
 {
+    printf("append\n");
     pthread_mutex_lock(&alock);
     if(client == NULL)
     {
@@ -45,31 +46,50 @@ void client_append(Client* client)
     }
     if(pHead == NULL)
     {
-        pHead = client;
-        pEnd = client; 
+        printf("first\n");
+        pHead = *client;
+        pEnd = *client; 
     }
     else
     {
-        pEnd->pNext = client;
-        client->pNext = NULL;
+        (*client)->pNext = pHead;
+        pHead = *client;
     }
     client_num++;
     pthread_mutex_unlock(&alock);
+    client_show();
 }
 
+void client_show()
+{
+    pthread_mutex_lock(&alock);
+    printf("show\n");
+    Client *pTemp = pHead;
+    while(pTemp)
+    {
+        printf("%d ",pTemp->type);
+        pTemp = pTemp->pNext;
+    }
+    printf("\n");
+    pthread_mutex_unlock(&alock);
+}
 
 Client* find_client(int type)
 {
+    pthread_mutex_lock(&alock);
+    printf("Find client %d",type);
     Client* pTemp = pHead;
-    while(pTemp->pNext == NULL)
+    while(pTemp)
     {
         if(pTemp->type == type)
         {
+            pthread_mutex_unlock(&alock);
             return pTemp;
         }
         pTemp = pTemp->pNext;
     }
     printf("Not find client ...\n");
+    pthread_mutex_unlock(&alock);
     return NULL;
 }
 
@@ -269,6 +289,7 @@ int init_socket(void)
     if((bind(socketfd,(struct sockaddr *)&serveraddr,sizeof(serveraddr)))==-1)
     {
         perror("Bind Error:");
+        return -1;
     }
     listen(socketfd,_LISTEN);
     return socketfd;
@@ -293,27 +314,37 @@ void * server_work(void * arg)
     pthread_mutex_unlock(&alock);
     printf("tid:%x  ip:%s  port:%d\n",(unsigned int)pthread_self(),inet_ntop(AF_INET,&clientaddr.sin_addr.s_addr,ipstr,_IP_SIZE),ntohs(clientaddr.sin_port));
     int flag = 0;
-    read(clientfd,buf,sizeof(buf));
-    pthread_mutex_lock(&alock);
-    client->type = atoi(buf);
-    client_append(client); 
-    pthread_mutex_unlock(&alock);
+    while((len = read(client->clientfd,buf,sizeof(buf)))>0)
+    {
+        printf("Read msg from client");
+        pthread_mutex_lock(&alock);
+        client->type = atoi(buf);
+        pthread_mutex_unlock(&alock);
+        if(client->type >=100 && client->type <= 103)
+            break;
+        bzero(buf,sizeof(buf));
+    }
+    client_append(&client); 
+    printf("Get datas from client:%d,IP:%s,PORT:%d\n",client->type,client->HOST,client->PORT);
     while(1)
     {
-        printf("Wait for client logging ...\n");
         char wait[5] = "WAIT";
         write(client->clientfd,wait,sizeof(wait));
+        printf("Wait for client logging ...client:%d\n",client_num);
         if(client_num >= 4)
         {
             char ok[3] = "OK";
+            printf("Send OK msg ...\n");
             write(client->clientfd,ok,sizeof(ok));
             break;
         }
         sleep(2);
     }
+    Client* next_client = find_next_client(client);
+    printf("Get the next client:%d,IP:%s,PORT:%d\n",next_client->type,next_client->HOST,next_client->PORT);
     while((len = read(client->clientfd,buf,sizeof(buf)))>0)
     {
-        Client* next_client = find_next_client(client);
+        printf("Read msg from client:%d\n,msg:%s\n",client->type,buf);
         write(next_client->clientfd,buf,len);
         bzero(buf,sizeof(buf));
     }
@@ -339,10 +370,7 @@ void Daemon(void)
         setsid();
         chdir("/");
         umask(0);
-//	    close(STDIN_FILENO);
-//		close(STDERR_FILENO);
         fd = open("/tmp/thread_pool.log",O_RDWR|O_CREAT,0664);
-//		if((dup2(fd,STDOUT_FILENO))==-1)
             perror("dup2 error:");
         printf("hello world\n");
     }
@@ -361,7 +389,8 @@ int main(void)
     int ready;
     pool_t * pool; 
     sockfd = init_socket();
-    /*epoll完成任务投递*/
+    if (sockfd == -1)
+        return 0;
     Daemon();
     epfd = epoll_create(10);
     evt.data.fd = sockfd;
