@@ -1,4 +1,5 @@
 import requests
+from socket import *
 import random
 import time
 import urllib.error
@@ -10,22 +11,21 @@ import http.cookiejar
 import base64
 import urllib
 import json
+import numpy as np
 import binascii
 import aiohttp
 import asyncio
 import client
-from socket import *
 import threading
 
+USER_URL  = 20
+USER_HTML = 21
+PRE_URL = 22
+PRE_HTML = 23
 HOST = '127.0.0.1'
 PORT = 8000
 BUFSIZE = 1024
 ADDR = (HOST,PORT)
-USER_URL  = 10
-USER_HTML = 11
-PRE_URL = 12
-PRE_HTML = 13
-
 
 class Scrapy:
     t0 = time.time()
@@ -56,6 +56,7 @@ class Scrapy:
                 cookies_pool.append(cookies)
                 i += 1
         print('\n................................cookies_pool len:',len(cookies_pool))
+        self.t0 = time.time()
         return cookies_pool
     
     def init_users(self):
@@ -143,11 +144,11 @@ class Scrapy:
     async def connect_url(self,url):
         if url is "":
             return None
+        print(self.count+1,".\tConnect url :",url,"\tuse time:",time.time()-self.t0)
         if self.count % 250 is 0:
             print("Get Cookies ...")
             self.cookies_pool = []
             self.cookies_pool = self.init_cookies(3)
-        print(self.count+1,".\tConnect url :",url,"\tuse time:",time.time()-self.t0)
         self.count += 1
         cookies = random.sample(self.cookies_pool,1)[0]
         headers = random.sample(self.headers_pool,1)[0]
@@ -156,13 +157,13 @@ class Scrapy:
                 async with session.get(url,headers = headers) as r:
                     html =await r.text()
                     await asyncio.sleep(self.time)
-                    print("Get Url Success ...")
                     return html,1
         except:
-            print("Get Url Error ...")
             return url,0
+
 def get_some_data(tcpCliSock):
-    global lock,unseen
+    global unseen,lock
+    print("Start Get Data ...")
     while True:
         urls = client.get_data_from_server(tcpCliSock)
         if urls is not None:
@@ -171,13 +172,14 @@ def get_some_data(tcpCliSock):
             lock.release()
 
 async def main(loop):
-    global seen,unseen
-    att_urls = set()
+    global unseen,seen
+    url = "https://weibo.com/u/3195299207?from=myfollow_all"
+    base_url = 'https://weibo.com/'
     lost_url = set()
     user = Scrapy()
     tcpCliSock = socket(AF_INET,SOCK_STREAM)
     tcpCliSock.connect(ADDR)
-    tcpCliSock.send(str(USER_URL).encode())
+    tcpCliSock.send(str(PRE_URL).encode())
     while True:
         buf = tcpCliSock.recv(100).decode()
         if 'WAIT' in buf:
@@ -188,40 +190,38 @@ async def main(loop):
         if 'OK' in buf:
             print("OK")
             break
-    print("Connect Already  ....")
-    recv_data = threading.Thread(target = get_some_data,args=(tcpCliSock,))
+    print("Connect Already ....")
+    recv_data = threading.Thread(target = get_some_data,args = (tcpCliSock,))
     recv_data.start()
     while True:
-        while len(unseen) != 0:
-            tasks = [loop.create_task(user.connect_url(url)) for url in unseen]
-            finished,unfinished = await asyncio.wait(tasks)
-            datas = [f.result() for f in finished]
-            print("Connect Finished")
-            htmls = []
-            lost_url.clear()
-            for data,flag in datas:
-                if flag is 1:
-                    htmls.append(data)
-                    if len(htmls) > 5:
-                        print("Post Data To Server ....")
-                        client.post_data_to_server(tcpCliSock,htmls)
-                        htmls = []
-                        time.sleep(2)
-                else:
-                    lost_url.add(data)
-            print("Post Data To Server ....")
-            client.post_data_to_server(tcpCliSock,htmls)
-            htmls = []
-            seen.update(unseen)
-            unseen = lost_url
-            print("Get Data From Server ....")
-    tcpCliSock.close()
+        if len(unseen) is 0:
+            continue
+        tasks = [loop.create_task(user.connect_url(url)) for url in unseen]
+        finished,unfinished = await asyncio.wait(tasks)
+        datas = [f.result() for f in finished]
+        htmls = []
+        lost_url.clear()
+        for data,flag in datas:
+            if flag is 1:
+                htmls.append(data)
+                if len(htmls) > 5:
+                    print("Start Post data ...")
+                    client.post_data_to_server(tcpCliSock,htmls)
+                    htmls = []
+                    time.sleep(2)
+            else:
+                lost_url.add(data)
+        print("Start Post data ...")
+        client.post_data_to_server(tcpCliSock,htmls)
+        htmls = []
+        seen.update(unseen)
+        unseen = lost_url
+
 
 if __name__ == "__main__":
-    base_url = 'https://weibo.com/'
-    lock=threading.Lock()
-    unseen = set([base_url])
     seen = set()
+    unseen = set()
+    lock = threading.Lock()
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main(loop))
     loop.close()

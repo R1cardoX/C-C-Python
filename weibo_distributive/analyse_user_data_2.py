@@ -9,10 +9,10 @@ import multiprocessing as mp
 import client
 import threading
 
-USER_URL  = 10
-USER_HTML = 11
-PRE_URL = 12
-PRE_HTML = 13
+USER_URL  = 20
+USER_HTML = 21
+PRE_URL = 22
+PRE_HTML = 23
 HOST = '127.0.0.1'
 PORT = 8000
 BUFSIZE = 1024

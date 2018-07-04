@@ -21,10 +21,10 @@ HOST = '127.0.0.1'
 PORT = 8000
 BUFSIZE = 1024
 ADDR = (HOST,PORT)
-USER_URL  = 10
-USER_HTML = 11
-PRE_URL = 12
-PRE_HTML = 13
+USER_URL  = 20
+USER_HTML = 21
+PRE_URL = 22
+PRE_HTML = 23
 
 
 class Scrapy:
@@ -203,24 +203,22 @@ async def main(loop):
                 if flag is 1:
                     htmls.append(data)
                     if len(htmls) > 5:
-                        print("Post Data To Server ....")
                         client.post_data_to_server(tcpCliSock,htmls)
                         htmls = []
                         time.sleep(2)
                 else:
                     lost_url.add(data)
-            print("Post Data To Server ....")
             client.post_data_to_server(tcpCliSock,htmls)
             htmls = []
+            print("Post Data To Server ....")
             seen.update(unseen)
             unseen = lost_url
             print("Get Data From Server ....")
     tcpCliSock.close()
 
 if __name__ == "__main__":
-    base_url = 'https://weibo.com/'
     lock=threading.Lock()
-    unseen = set([base_url])
+    unseen = set()
     seen = set()
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main(loop))

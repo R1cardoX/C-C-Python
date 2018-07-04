@@ -3,6 +3,66 @@
 Client* pHead = NULL;
 Client* pEnd = NULL;
 int client_num = 0;
+int client_user_connect = 0;
+int client_user_analyse = 0;
+int client_pre_connect = 0;
+int client_pre_analyse = 0;
+int client_set = 0;
+
+int match_end_str(char* str1,int len1,char* str2,int len2)
+{
+    int i = 0;
+    if(len1 < len2)
+        return -1;
+    for(i=0;i<len2;i++)
+    {
+        if(str1[i + len1 - len2] != str2[i])
+        {
+            break;
+        }
+    }
+    if(i == len2)
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+int get_client_num(int type)
+{
+    int client_type;
+    switch(type%10)
+    {
+    case USER_URL:
+        {
+            client_type = client_user_connect;  
+        }
+       break; 
+    case PRE_URL:
+        {
+            client_type = client_pre_connect;  
+        }
+       break; 
+    case USER_HTML:
+        {
+            client_type = client_user_analyse;  
+        }
+       break; 
+    case PRE_HTML:
+        {
+            client_type = client_pre_analyse;  
+        }
+        break;    
+    case URL_SET:
+        {
+            client_type = client_set;
+        }
+    }
+    return client_type;
+}
 
 void client_delete(int clientfd)
 {
@@ -55,6 +115,33 @@ void client_append(Client** client)
         (*client)->pNext = pHead;
         pHead = *client;
     }
+    switch(((*client)->type)%10)
+    {
+    case 0:
+        {
+            client_user_connect++;    
+        }
+       break; 
+    case 1:
+        {
+            client_user_analyse++;
+        }
+       break; 
+    case 2:
+        {
+            client_pre_connect++;
+        }
+       break; 
+    case 3:
+        {
+            client_pre_analyse++;
+        }
+       break; 
+    case URL_SET:
+       {
+            client_set++;
+       }
+    }
     client_num++;
     pthread_mutex_unlock(&alock);
     client_show();
@@ -77,7 +164,7 @@ void client_show()
 Client* find_client(int type)
 {
     pthread_mutex_lock(&alock);
-    printf("Find client %d",type);
+    printf("Find client %d\n",type);
     Client* pTemp = pHead;
     while(pTemp)
     {
@@ -93,33 +180,23 @@ Client* find_client(int type)
     return NULL;
 }
 
-Client* find_next_client(Client* client)
+Client* find_next_client(Client* client,int i)
 {
-    switch(client->type)
+    int type = client->type;
+    if(type == 5)
     {
-        case USER_URL:
-            {
-               return find_client(USER_HTML);
-            }
-           break; 
-        case PRE_URL:
-            {
-                return find_client(PRE_HTML);
-            }
-           break; 
-        case USER_HTML:
-            {
-                return find_client(PRE_URL);
-            }
-           break; 
-        case PRE_HTML:
-            {
-                return find_client(USER_URL);
-            }
-           break; 
+        type = 10*(i+1);
     }
+    else if(type%10 == 3)
+    {
+        type = 10*(i+1);//type = 5;
+    }
+    else
+    {
+        type = 10*(i+1) + 1 + type%10; 
+    }
+    return find_client(type);
     printf("Find Client Error...\n");
-    return NULL;
 }
 
 pool_t * Pool_Create(int thread_min , int thread_max , int queue_max)
@@ -316,11 +393,11 @@ void * server_work(void * arg)
     int flag = 0;
     while((len = read(client->clientfd,buf,sizeof(buf)))>0)
     {
-        printf("Read msg from client");
+        printf("Read msg from client,client type%d\n",client->type);
         pthread_mutex_lock(&alock);
         client->type = atoi(buf);
         pthread_mutex_unlock(&alock);
-        if(client->type >=100 && client->type <= 103)
+        if(client->type >=1 && client->type <= 105)
             break;
         bzero(buf,sizeof(buf));
     }
@@ -331,7 +408,7 @@ void * server_work(void * arg)
         char wait[5] = "WAIT";
         write(client->clientfd,wait,sizeof(wait));
         printf("Wait for client logging ...client:%d\n",client_num);
-        if(client_num >= 4)
+        if(client_num >= 8)
         {
             char ok[3] = "OK";
             printf("Send OK msg ...\n");
@@ -340,15 +417,39 @@ void * server_work(void * arg)
         }
         sleep(2);
     }
-    Client* next_client = find_next_client(client);
-    printf("Get the next client:%d,IP:%s,PORT:%d\n",next_client->type,next_client->HOST,next_client->PORT);
-    while((len = read(client->clientfd,buf,sizeof(buf)))>0)
+    int my_client_num = get_client_num(client->type);
+    int i = 0;
+    char next[5] = "NEXT";
+    client_show();
+    Client* next_client = find_next_client(client,i);
+    while(1)
     {
-        printf("Read msg from client:%d\n,msg:%s\n",client->type,buf);
+        len = read(client->clientfd,buf,sizeof(buf));
+        if(len == 0)
+        {
+            bzero(buf,sizeof(buf));
+            sleep(1);
+            continue;
+        }
+        printf("%s\n",buf);
+        printf("Read msg from client:%d,Begin to write to client:%d\n",client->type,next_client->type);
         write(next_client->clientfd,buf,len);
+        if(match_end_str(buf,strlen(buf),next,strlen(next)))
+        {
+            if (next_client != NULL)
+                printf("Get the next client:%d,IP:%s,PORT:%d\n",next_client->type,next_client->HOST,next_client->PORT);
+            else
+                printf("Not found client,client_num:%d\n",my_client_num);
+            if(i == (my_client_num -1))
+                i = 0;
+            else
+                i++;
+            next_client = find_next_client(client,i);
+        }
         bzero(buf,sizeof(buf));
     }
     if(len == 0){
+        printf("Close client:%d",client->type);
         close(clientfd);
         client_delete(clientfd);
     }

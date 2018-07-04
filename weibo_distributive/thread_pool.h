@@ -22,10 +22,11 @@
 #define	FALSE	0
 #define	CREATE_DES	10
 #define	_TIMEOUT 3
-#define USER_URL 100
-#define PRE_URL  101
-#define USER_HTML 102
-#define PRE_HTML 103
+#define USER_URL 0
+#define USER_HTML 1
+#define PRE_URL  2
+#define PRE_HTML 3
+#define URL_SET 5
 
 pthread_mutex_t alock = PTHREAD_MUTEX_INITIALIZER;
 typedef struct
@@ -66,7 +67,7 @@ typedef struct
 	int pool_shutDown;
 	int wait;
 }pool_t;
-Client* find_next_client(Client*);
+Client* find_next_client(Client*,int);
 Client* find_client(int );
 pool_t * Pool_Create(int , int ,int);
 int Pool_Add_TaskQueue(pool_t *,void*(*)(void * ),void * );
