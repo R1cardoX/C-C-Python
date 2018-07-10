@@ -15,6 +15,7 @@ class Match:
             datas += i.get_text() + " " +base_url+i["href"] + "\n"
         self.key_url = base_url + results[0]['href']
         return datas
+
     def get_key(self):
         textrank = analyse.textrank
         html = requests.get(self.key_url,headers = headers).text
